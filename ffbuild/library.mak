@@ -35,7 +35,8 @@ OBJS += $(SHLIBOBJS)
 endif
 $(SUBDIR)$(LIBNAME): $(OBJS) $(STLIBOBJS)
 	$(RM) $@
-	$(AR) $(ARFLAGS) $(AR_O) $^
+	$(file >objs.txt,$^)
+	$(AR) $(ARFLAGS) $(AR_O) @objs.txt
 	$(RANLIB) $@
 
 install-headers: install-lib$(NAME)-headers install-lib$(NAME)-pkgconfig
