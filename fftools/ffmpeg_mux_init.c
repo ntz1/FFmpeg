@@ -361,7 +361,7 @@ static int enc_stats_init(OutputStream *ost, EncStats *es, int pre,
 
         ret = GROW_ARRAY(es->components, es->nb_components);
         if (ret < 0)
-            goto fail;
+            return ret;
 
         c = &es->components[es->nb_components - 1];
 
