@@ -497,7 +497,7 @@ static int opt_map_channel(void *optctx, const char *opt, const char *arg)
 
     ret = GROW_ARRAY(o->audio_channel_maps, o->nb_audio_channel_maps);
     if (ret < 0)
-        goto end;
+        return ret;
 
     m = &o->audio_channel_maps[o->nb_audio_channel_maps - 1];
 
@@ -559,13 +559,11 @@ static int opt_map_channel(void *optctx, const char *opt, const char *arg)
         }
 
     }
-    ret = 0;
-end:
     av_free(mapchan);
-    return ret;
+    return 0;
 fail:
-    ret = AVERROR(EINVAL);
-    goto end;
+    av_free(mapchan);
+    return AVERROR(EINVAL);
 }
 #endif
 
