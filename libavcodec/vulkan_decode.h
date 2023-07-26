@@ -37,7 +37,7 @@ typedef struct FFVulkanDecodeProfileData {
 typedef struct FFVulkanDecodeShared {
     FFVulkanContext s;
     FFVkVideoCommon common;
-    FFVkQueueFamilyCtx qf;
+    FFVkExecPool exec_pool;
 
     VkVideoCapabilitiesKHR caps;
     VkVideoDecodeCapabilitiesKHR dec_caps;
@@ -56,7 +56,6 @@ typedef struct FFVulkanDecodeShared {
 typedef struct FFVulkanDecodeContext {
     AVBufferRef *shared_ref;
     AVBufferRef *session_params;
-    FFVkExecPool exec_pool;
 
     int dedicated_dpb; /* Oddity  #1 - separate DPB images */
     int layered_dpb;   /* Madness #1 - layered  DPB images */
