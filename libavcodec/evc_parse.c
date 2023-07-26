@@ -17,6 +17,7 @@
  */
 
 #include "golomb.h"
+#include "parser.h"
 #include "evc.h"
 #include "evc_parse.h"
 

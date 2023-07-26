@@ -28,6 +28,7 @@
 
 #include "libavutil/intreadwrite.h"
 #include "libavutil/log.h"
+#include "libavutil/rational.h"
 #include "evc.h"
 #include "evc_ps.h"
 
