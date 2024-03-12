@@ -42,9 +42,6 @@
 #include "sei.h"
 
 typedef struct ReorderedData {
-#if FF_API_REORDERED_OPAQUE
-    int64_t reordered_opaque;
-#endif
     int64_t duration;
 
     void        *frame_opaque;
@@ -395,7 +392,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
     ctx->params->rc.vbvBufferSize = avctx->rc_buffer_size / 1000;
     ctx->params->rc.vbvMaxBitrate = avctx->rc_max_rate    / 1000;
 
-    cpb_props = ff_add_cpb_side_data(avctx);
+    cpb_props = ff_encode_add_cpb_side_data(avctx);
     if (!cpb_props)
         return AVERROR(ENOMEM);
     cpb_props->buffer_size = ctx->params->rc.vbvBufferSize * 1000;
@@ -626,11 +623,6 @@ static int libx265_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
         rd = &ctx->rd[rd_idx];
 
         rd->duration         = pic->duration;
-#if FF_API_REORDERED_OPAQUE
-FF_DISABLE_DEPRECATION_WARNINGS
-        rd->reordered_opaque = pic->reordered_opaque;
-FF_ENABLE_DEPRECATION_WARNINGS
-#endif
         if (avctx->flags & AV_CODEC_FLAG_COPY_OPAQUE) {
             rd->frame_opaque = pic->opaque;
             ret = av_buffer_replace(&rd->frame_opaque_ref, pic->opaque_ref);
@@ -768,11 +760,6 @@ FF_ENABLE_DEPRECATION_WARNINGS
         int idx = (int)(intptr_t)x265pic_out.userData - 1;
         ReorderedData *rd = &ctx->rd[idx];
 
-#if FF_API_REORDERED_OPAQUE
-FF_DISABLE_DEPRECATION_WARNINGS
-        avctx->reordered_opaque = rd->reordered_opaque;
-FF_ENABLE_DEPRECATION_WARNINGS
-#endif
         pkt->duration           = rd->duration;
 
         if (avctx->flags & AV_CODEC_FLAG_COPY_OPAQUE) {
@@ -783,13 +770,6 @@ FF_ENABLE_DEPRECATION_WARNINGS
 
         rd_release(ctx, idx);
     }
-#if FF_API_REORDERED_OPAQUE
-    else {
-FF_DISABLE_DEPRECATION_WARNINGS
-        avctx->reordered_opaque = 0;
-FF_ENABLE_DEPRECATION_WARNINGS
-    }
-#endif
 
     *got_packet = 1;
     return 0;

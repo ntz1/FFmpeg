@@ -337,7 +337,7 @@ static void av_always_inline dng_blit(TiffContext *s, uint8_t *dst, int dst_stri
            (split vertically in the middle). */
         for (line = 0; line < height / 2; line++) {
             uint16_t *dst_u16 = (uint16_t *)dst;
-            uint16_t *src_u16 = (uint16_t *)src;
+            const uint16_t *src_u16 = (const uint16_t *)src;
 
             /* Blit first half of input row row to initial row of output */
             for (col = 0; col < width; col++)
@@ -360,7 +360,7 @@ static void av_always_inline dng_blit(TiffContext *s, uint8_t *dst, int dst_stri
         if (is_u16) {
             for (line = 0; line < height; line++) {
                 uint16_t *dst_u16 = (uint16_t *)dst;
-                uint16_t *src_u16 = (uint16_t *)src;
+                const uint16_t *src_u16 = (const uint16_t *)src;
 
                 for (col = 0; col < width; col++)
                     *dst_u16++ = dng_process_color16(*src_u16++, s->dng_lut,
@@ -570,7 +570,7 @@ static int tiff_uncompress_lzma(uint8_t *dst, uint64_t *len, const uint8_t *src,
     lzma_stream stream = LZMA_STREAM_INIT;
     lzma_ret ret;
 
-    stream.next_in   = (uint8_t *)src;
+    stream.next_in   = src;
     stream.avail_in  = size;
     stream.next_out  = dst;
     stream.avail_out = *len;
@@ -1701,16 +1701,16 @@ static int tiff_decode_tag(TiffContext *s, AVFrame *frame)
         break;
     case TIFF_ICC_PROFILE:
         gb_temp = s->gb;
-        bytestream2_seek(&gb_temp, SEEK_SET, off);
+        bytestream2_seek(&gb_temp, off, SEEK_SET);
 
         if (bytestream2_get_bytes_left(&gb_temp) < count)
             return AVERROR_INVALIDDATA;
 
-        sd = av_frame_new_side_data(frame, AV_FRAME_DATA_ICC_PROFILE, count);
-        if (!sd)
-            return AVERROR(ENOMEM);
-
-        bytestream2_get_bufferu(&gb_temp, sd->data, count);
+        ret = ff_frame_new_side_data(s->avctx, frame, AV_FRAME_DATA_ICC_PROFILE, count, &sd);
+        if (ret < 0)
+            return ret;
+        if (sd)
+            bytestream2_get_bufferu(&gb_temp, sd->data, count);
         break;
     case TIFF_ARTIST:
         ADD_METADATA(count, "artist", NULL);
@@ -2416,7 +2416,6 @@ static av_cold int tiff_init(AVCodecContext *avctx)
         return AVERROR(ENOMEM);
     s->avctx_mjpeg->flags = avctx->flags;
     s->avctx_mjpeg->flags2 = avctx->flags2;
-    s->avctx_mjpeg->dct_algo = avctx->dct_algo;
     s->avctx_mjpeg->idct_algo = avctx->idct_algo;
     s->avctx_mjpeg->max_pixels = avctx->max_pixels;
     ret = avcodec_open2(s->avctx_mjpeg, codec, NULL);

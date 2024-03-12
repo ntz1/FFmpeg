@@ -90,7 +90,7 @@ typedef struct FifoThreadContext {
 
     /* Timestamp of last failure.
      * This is either pts in case stream time is used,
-     * or microseconds as returned by av_getttime_relative() */
+     * or microseconds as returned by av_gettime_relative() */
     int64_t last_recovery_ts;
 
     /* Number of current recovery process
@@ -501,11 +501,6 @@ static int fifo_mux_init(AVFormatContext *avf, const AVOutputFormat *oformat,
     if (ret < 0)
         return ret;
     avf2->opaque = avf->opaque;
-#if FF_API_AVFORMAT_IO_CLOSE
-FF_DISABLE_DEPRECATION_WARNINGS
-    avf2->io_close = avf->io_close;
-FF_ENABLE_DEPRECATION_WARNINGS
-#endif
     avf2->io_close2 = avf->io_close2;
     avf2->io_open = avf->io_open;
     avf2->flags = avf->flags;
@@ -715,11 +710,16 @@ const FFOutputFormat ff_fifo_muxer = {
     .p.name         = "fifo",
     .p.long_name    = NULL_IF_CONFIG_SMALL("FIFO queue pseudo-muxer"),
     .p.priv_class   = &fifo_muxer_class,
+#if FF_API_ALLOW_FLUSH
     .p.flags        = AVFMT_NOFILE | AVFMT_ALLOW_FLUSH | AVFMT_TS_NEGATIVE,
+#else
+    .p.flags        = AVFMT_NOFILE | AVFMT_TS_NEGATIVE,
+#endif
     .priv_data_size = sizeof(FifoContext),
     .init           = fifo_init,
     .write_header   = fifo_write_header,
     .write_packet   = fifo_write_packet,
     .write_trailer  = fifo_write_trailer,
     .deinit         = fifo_deinit,
+    .flags_internal = FF_FMT_ALLOW_FLUSH,
 };
