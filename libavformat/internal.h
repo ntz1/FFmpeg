@@ -39,12 +39,6 @@
 #    define hex_dump_debug(class, buf, size) do { if (0) av_hex_dump_log(class, AV_LOG_DEBUG, buf, size); } while(0)
 #endif
 
-/**
- * For an FFInputFormat with this flag set read_close() needs to be called
- * by the caller upon read_header() failure.
- */
-#define FF_FMT_INIT_CLEANUP                             (1 << 0)
-
 typedef struct AVCodecTag {
     enum AVCodecID id;
     unsigned int tag;
@@ -719,10 +713,6 @@ int ff_copy_whiteblacklists(AVFormatContext *dst, const AVFormatContext *src);
  */
 int ff_format_io_close(AVFormatContext *s, AVIOContext **pb);
 
-/* Default io_close callback, not to be used directly, use ff_format_io_close
- * instead. */
-void ff_format_io_close_default(AVFormatContext *s, AVIOContext *pb);
-
 /**
  * Utility function to check if the file uses http or https protocol
  *
@@ -736,9 +726,6 @@ struct AVBPrint;
  * Finalize buf into extradata and set its size appropriately.
  */
 int ff_bprint_to_codecpar_extradata(AVCodecParameters *par, struct AVBPrint *buf);
-
-int ff_lock_avformat(void);
-int ff_unlock_avformat(void);
 
 /**
  * Set AVFormatContext url field to the provided pointer. The pointer must

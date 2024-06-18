@@ -1,5 +1,5 @@
 /*
- * LRC lyrics file format decoder
+ * LRC lyrics file format demuxer
  * Copyright (c) 2014 StarBrilliant <m13253@hotmail.com>
  *
  * This file is part of FFmpeg.
@@ -229,7 +229,7 @@ const FFInputFormat ff_lrc_demuxer = {
     .p.name         = "lrc",
     .p.long_name    = NULL_IF_CONFIG_SMALL("LRC lyrics"),
     .priv_data_size = sizeof (LRCContext),
-    .flags_internal = FF_FMT_INIT_CLEANUP,
+    .flags_internal = FF_INFMT_FLAG_INIT_CLEANUP,
     .read_probe     = lrc_probe,
     .read_header    = lrc_read_header,
     .read_packet    = ff_subtitles_read_packet,

@@ -95,6 +95,8 @@ static int webvtt_read_header(AVFormatContext *s)
         /* ignore header chunk */
         if (!strncmp(p, "\xEF\xBB\xBFWEBVTT", 9) ||
             !strncmp(p, "WEBVTT", 6) ||
+            !strncmp(p, "STYLE", 5) ||
+            !strncmp(p, "REGION", 6) ||
             !strncmp(p, "NOTE", 4))
             continue;
 
@@ -217,7 +219,7 @@ const FFInputFormat ff_webvtt_demuxer = {
     .p.extensions   = "vtt",
     .p.priv_class   = &webvtt_demuxer_class,
     .priv_data_size = sizeof(WebVTTContext),
-    .flags_internal = FF_FMT_INIT_CLEANUP,
+    .flags_internal = FF_INFMT_FLAG_INIT_CLEANUP,
     .read_probe     = webvtt_probe,
     .read_header    = webvtt_read_header,
     .read_packet    = webvtt_read_packet,

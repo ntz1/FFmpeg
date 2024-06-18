@@ -24,7 +24,6 @@
 #include "internal.h"
 #include "subtitles.h"
 #include "libavutil/avstring.h"
-#include "libavutil/bprint.h"
 #include "libavutil/intreadwrite.h"
 
 typedef struct SCCContext {
@@ -153,7 +152,7 @@ const FFInputFormat ff_scc_demuxer = {
     .p.long_name    = NULL_IF_CONFIG_SMALL("Scenarist Closed Captions"),
     .p.extensions   = "scc",
     .priv_data_size = sizeof(SCCContext),
-    .flags_internal = FF_FMT_INIT_CLEANUP,
+    .flags_internal = FF_INFMT_FLAG_INIT_CLEANUP,
     .read_probe     = scc_probe,
     .read_header    = scc_read_header,
     .read_packet    = ff_subtitles_read_packet,

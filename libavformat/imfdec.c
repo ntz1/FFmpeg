@@ -70,8 +70,8 @@
 #include "libavutil/avstring.h"
 #include "libavutil/bprint.h"
 #include "libavutil/intreadwrite.h"
+#include "libavutil/mem.h"
 #include "libavutil/opt.h"
-#include "mxf.h"
 #include <inttypes.h>
 #include <libxml/parser.h>
 
@@ -695,11 +695,8 @@ static int imf_read_header(AVFormatContext *s)
 static IMFVirtualTrackPlaybackCtx *get_next_track_with_minimum_timestamp(AVFormatContext *s)
 {
     IMFContext *c = s->priv_data;
-    IMFVirtualTrackPlaybackCtx *track;
+    IMFVirtualTrackPlaybackCtx *track = NULL;
     AVRational minimum_timestamp = av_make_q(INT32_MAX, 1);
-
-    if (!c->track_count)
-        return NULL;
 
     for (uint32_t i = c->track_count; i > 0; i--) {
         av_log(s, AV_LOG_TRACE, "Compare track %d timestamp " AVRATIONAL_FORMAT
@@ -1019,7 +1016,7 @@ const FFInputFormat ff_imf_demuxer = {
     .p.long_name    = NULL_IF_CONFIG_SMALL("IMF (Interoperable Master Format)"),
     .p.flags        = AVFMT_NO_BYTE_SEEK,
     .p.priv_class   = &imf_class,
-    .flags_internal = FF_FMT_INIT_CLEANUP,
+    .flags_internal = FF_INFMT_FLAG_INIT_CLEANUP,
     .priv_data_size = sizeof(IMFContext),
     .read_probe     = imf_probe,
     .read_header    = imf_read_header,

@@ -79,6 +79,10 @@ enum AVChannel {
     AV_CHAN_BOTTOM_FRONT_CENTER,
     AV_CHAN_BOTTOM_FRONT_LEFT,
     AV_CHAN_BOTTOM_FRONT_RIGHT,
+    AV_CHAN_SIDE_SURROUND_LEFT,     ///<  +90 degrees, Lss, SiL
+    AV_CHAN_SIDE_SURROUND_RIGHT,    ///<  -90 degrees, Rss, SiR
+    AV_CHAN_TOP_SURROUND_LEFT,      ///< +110 degrees, Lvs, TpLS
+    AV_CHAN_TOP_SURROUND_RIGHT,     ///< -110 degrees, Rvs, TpRS
 
     /** Channel is empty can be safely skipped. */
     AV_CHAN_UNUSED = 0x200,
@@ -195,6 +199,10 @@ enum AVChannelOrder {
 #define AV_CH_BOTTOM_FRONT_CENTER    (1ULL << AV_CHAN_BOTTOM_FRONT_CENTER  )
 #define AV_CH_BOTTOM_FRONT_LEFT      (1ULL << AV_CHAN_BOTTOM_FRONT_LEFT    )
 #define AV_CH_BOTTOM_FRONT_RIGHT     (1ULL << AV_CHAN_BOTTOM_FRONT_RIGHT   )
+#define AV_CH_SIDE_SURROUND_LEFT     (1ULL << AV_CHAN_SIDE_SURROUND_LEFT   )
+#define AV_CH_SIDE_SURROUND_RIGHT    (1ULL << AV_CHAN_SIDE_SURROUND_RIGHT  )
+#define AV_CH_TOP_SURROUND_LEFT      (1ULL << AV_CHAN_TOP_SURROUND_LEFT    )
+#define AV_CH_TOP_SURROUND_RIGHT     (1ULL << AV_CHAN_TOP_SURROUND_RIGHT   )
 
 /**
  * @}
@@ -512,10 +520,14 @@ int av_channel_layout_from_mask(AVChannelLayout *channel_layout, uint64_t mask);
  *  - the number of unordered channels (eg. "4C" or "4 channels")
  *  - the ambisonic order followed by optional non-diegetic channels (eg.
  *    "ambisonic 2+stereo")
+ * On error, the channel layout will remain uninitialized, but not necessarily
+ * untouched.
  *
- * @param channel_layout input channel layout
+ * @param channel_layout uninitialized channel layout for the result
  * @param str string describing the channel layout
- * @return 0 channel layout was detected, AVERROR_INVALIDATATA otherwise
+ * @return 0 on success parsing the channel layout
+ *         AVERROR(EINVAL) if an invalid channel layout string was provided
+ *         AVERROR(ENOMEM) if there was not enough memory
  */
 int av_channel_layout_from_string(AVChannelLayout *channel_layout,
                                   const char *str);
@@ -676,9 +688,26 @@ int av_channel_layout_check(const AVChannelLayout *channel_layout);
 int av_channel_layout_compare(const AVChannelLayout *chl, const AVChannelLayout *chl1);
 
 /**
+ * Return the order if the layout is n-th order standard-order ambisonic.
+ * The presence of optional extra non-diegetic channels at the end is not taken
+ * into account.
+ *
+ * @param channel_layout input channel layout
+ * @return the order of the layout, a negative error code otherwise.
+ */
+int av_channel_layout_ambisonic_order(const AVChannelLayout *channel_layout);
+
+/**
  * The conversion must be lossless.
  */
 #define AV_CHANNEL_LAYOUT_RETYPE_FLAG_LOSSLESS (1 << 0)
+
+/**
+ * The specified retype target order is ignored and the simplest possible
+ * (canonical) order is used for which the input layout can be losslessy
+ * represented.
+ */
+#define AV_CHANNEL_LAYOUT_RETYPE_FLAG_CANONICAL (1 << 1)
 
 /**
  * Change the AVChannelOrder of a channel layout.

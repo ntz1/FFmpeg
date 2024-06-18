@@ -33,7 +33,9 @@
 #include "libavutil/intreadwrite.h"
 #include "libavutil/log.h"
 #include "libavutil/mathematics.h"
+#include "libavutil/mem.h"
 #include "libavutil/opt.h"
+#include "libavcodec/internal.h"
 #include "avformat.h"
 #include "avio.h"
 #include "avio_internal.h"
@@ -80,15 +82,8 @@ static const AVOption demux_options[] = {
 static void set_max_size(AVStream *st, WAVDemuxContext *wav)
 {
     if (wav->max_size <= 0) {
-        int64_t nb_samples = av_clip(st->codecpar->sample_rate / 25, 1, 1024);
-        if (st->codecpar->block_align > 0 &&
-            st->codecpar->block_align * nb_samples < INT_MAX &&
-            st->codecpar->ch_layout.nb_channels > 0 &&
-            st->codecpar->block_align <= 8LL * st->codecpar->ch_layout.nb_channels) {
-            wav->max_size = st->codecpar->block_align * nb_samples;
-        } else {
-            wav->max_size = 4096;
-        }
+        int max_size = ff_pcm_default_packet_size(st->codecpar);
+        wav->max_size = max_size < 0 ? 4096 : max_size;
     }
 }
 
@@ -459,7 +454,7 @@ static int wav_read_header(AVFormatContext *s)
             }
 
             if (rf64 || bw64) {
-                next_tag_ofs = wav->data_end = avio_tell(pb) + data_size;
+                next_tag_ofs = wav->data_end = av_sat_add64(avio_tell(pb), data_size);
             } else if (size != 0xFFFFFFFF) {
                 data_size    = size;
                 next_tag_ofs = wav->data_end = size ? next_tag_ofs : INT64_MAX;
@@ -915,7 +910,9 @@ static int w64_read_header(AVFormatContext *s)
             if (ret < 0)
                 return ret;
             avio_skip(pb, FFALIGN(size, INT64_C(8)) - size);
-            if (st->codecpar->block_align) {
+            if (st->codecpar->block_align &&
+                st->codecpar->ch_layout.nb_channels < FF_SANE_NB_CHANNELS &&
+                st->codecpar->bits_per_coded_sample < 128) {
                 int block_align = st->codecpar->block_align;
 
                 block_align = FFMAX(block_align,

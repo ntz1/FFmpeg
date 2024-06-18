@@ -1505,7 +1505,7 @@ typedef struct AVCodecContext {
      */
     int hwaccel_flags;
 
-    /*
+    /**
      * Video decoding only.  Sets the number of extra hardware frames which
      * the decoder will allocate for use by the caller.  This must be set
      * before avcodec_open2() is called.
@@ -1538,6 +1538,7 @@ typedef struct AVCodecContext {
 #define FF_DCT_MMX     3
 #define FF_DCT_ALTIVEC 5
 #define FF_DCT_FAAN    6
+#define FF_DCT_NEON    7
 
     /**
      * IDCT algorithm, see FF_IDCT_* below.
@@ -2062,6 +2063,19 @@ typedef struct AVCodecContext {
      * Number of entries in side_data_prefer_packet.
      */
     unsigned nb_side_data_prefer_packet;
+
+    /**
+     * Array containing static side data, such as HDR10 CLL / MDCV structures.
+     * Side data entries should be allocated by usage of helpers defined in
+     * libavutil/frame.h.
+     *
+     * - encoding: may be set by user before calling avcodec_open2() for
+     *             encoder configuration. Afterwards owned and freed by the
+     *             encoder.
+     * - decoding: may be set by libavcodec in avcodec_open2().
+     */
+    AVFrameSideData  **decoded_side_data;
+    int             nb_decoded_side_data;
 } AVCodecContext;
 
 /**

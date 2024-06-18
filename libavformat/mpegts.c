@@ -22,17 +22,15 @@
 #include "config_components.h"
 
 #include "libavutil/buffer.h"
-#include "libavutil/common.h"
 #include "libavutil/crc.h"
 #include "libavutil/internal.h"
 #include "libavutil/intreadwrite.h"
 #include "libavutil/log.h"
 #include "libavutil/dict.h"
-#include "libavutil/mathematics.h"
+#include "libavutil/mem.h"
 #include "libavutil/opt.h"
 #include "libavutil/avassert.h"
 #include "libavutil/dovi_meta.h"
-#include "libavcodec/avcodec.h"
 #include "libavcodec/bytestream.h"
 #include "libavcodec/defs.h"
 #include "libavcodec/get_bits.h"
@@ -2191,7 +2189,7 @@ int ff_parse_mpeg2_descriptor(AVFormatContext *fc, AVStream *st, int stream_type
             uint32_t buf;
             AVDOVIDecoderConfigurationRecord *dovi;
             size_t dovi_size;
-            int dependency_pid;
+            int dependency_pid = -1; // Unset
 
             if (desc_end - *pp < 4) // (8 + 8 + 7 + 6 + 1 + 1 + 1) / 8
                 return AVERROR_INVALIDDATA;
@@ -2605,7 +2603,8 @@ static void pat_cb(MpegTSFilter *filter, const uint8_t *section, int section_len
                     FFSWAP(struct Program, ts->prg[nb_prg], ts->prg[prg_idx]);
                 if (prg_idx >= nb_prg)
                     nb_prg++;
-            }
+            } else
+                nb_prg = 0;
         }
     }
     ts->nb_prg = nb_prg;

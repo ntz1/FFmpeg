@@ -33,6 +33,7 @@
 #include "libavutil/avstring.h"
 #include "libavutil/bprint.h"
 #include "libavutil/intreadwrite.h"
+#include "libavutil/mem.h"
 #include "libavutil/opt.h"
 #include "libavutil/log.h"
 #include "libavutil/random_seed.h"
@@ -569,12 +570,6 @@ static void reflush_dynbuf(VariantStream *vs, int *range_length)
     avio_write(vs->out, vs->temp_buffer, *range_length);
 }
 
-#if HAVE_DOS_PATHS
-#define SEPARATOR '\\'
-#else
-#define SEPARATOR '/'
-#endif
-
 static int hls_delete_file(HLSContext *hls, AVFormatContext *avf,
                            char *path, const char *proto)
 {
@@ -667,7 +662,7 @@ static int hls_delete_old_segments(AVFormatContext *s, HLSContext *hls,
         av_log(hls, AV_LOG_DEBUG, "deleting old segment %s\n",
                segment->filename);
         if (!hls->use_localtime_mkdir) // segment->filename contains basename only
-            av_bprintf(&path, "%s%c", dirname, SEPARATOR);
+            av_bprintf(&path, "%s/", dirname);
         av_bprintf(&path, "%s", segment->filename);
 
         if (!av_bprint_is_complete(&path)) {
@@ -684,8 +679,7 @@ static int hls_delete_old_segments(AVFormatContext *s, HLSContext *hls,
             vtt_dirname = av_dirname(vtt_dirname_r);
 
             av_bprint_clear(&path);
-            av_bprintf(&path, "%s%c%s", vtt_dirname, SEPARATOR,
-                                         segment->sub_filename);
+            av_bprintf(&path, "%s/%s", vtt_dirname, segment->sub_filename);
             av_freep(&vtt_dirname_r);
 
             if (!av_bprint_is_complete(&path)) {
@@ -1588,8 +1582,6 @@ static int hls_window(AVFormatContext *s, int last, VariantStream *vs)
     ret = hlsenc_io_open(s, byterange_mode ? &hls->m3u8_out : &vs->out, temp_filename, &options);
     av_dict_free(&options);
     if (ret < 0) {
-        if (hls->ignore_io_errors)
-            ret = 0;
         goto fail;
     }
 
@@ -1647,8 +1639,6 @@ static int hls_window(AVFormatContext *s, int last, VariantStream *vs)
         ret = hlsenc_io_open(s, &hls->sub_m3u8_out, temp_vtt_filename, &options);
         av_dict_free(&options);
         if (ret < 0) {
-            if (hls->ignore_io_errors)
-                ret = 0;
             goto fail;
         }
         ff_hls_write_playlist_header(hls->sub_m3u8_out, hls->version, hls->allowcache,
@@ -2763,6 +2753,7 @@ static int hls_write_trailer(struct AVFormatContext *s)
             filename = av_asprintf("%s", oc->url);
         }
         if (!filename) {
+            av_dict_free(&options);
             av_freep(&old_filename);
             return AVERROR(ENOMEM);
         }
@@ -3205,7 +3196,7 @@ const FFOutputFormat ff_hls_muxer = {
     .p.flags          = AVFMT_NOFILE | AVFMT_GLOBALHEADER | AVFMT_NODIMENSIONS,
 #endif
     .p.priv_class     = &hls_class,
-    .flags_internal   = FF_FMT_ALLOW_FLUSH,
+    .flags_internal   = FF_OFMT_FLAG_ALLOW_FLUSH,
     .priv_data_size = sizeof(HLSContext),
     .init           = hls_init,
     .write_header   = hls_write_header,

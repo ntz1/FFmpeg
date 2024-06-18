@@ -38,7 +38,7 @@
 typedef struct KVAGHeader {
     uint32_t    magic;
     uint32_t    data_size;
-    uint32_t    sample_rate;
+    int    sample_rate;
     uint16_t    stereo;
 } KVAGHeader;
 
@@ -69,6 +69,9 @@ static int kvag_read_header(AVFormatContext *s)
     hdr.data_size               = AV_RL32(buf +  4);
     hdr.sample_rate             = AV_RL32(buf +  8);
     hdr.stereo                  = AV_RL16(buf + 12);
+
+    if (hdr.sample_rate <= 0)
+        return AVERROR_INVALIDDATA;
 
     par                         = st->codecpar;
     par->codec_type             = AVMEDIA_TYPE_AUDIO;
@@ -129,20 +132,7 @@ const FFInputFormat ff_kvag_demuxer = {
 #if CONFIG_KVAG_MUXER
 static int kvag_write_init(AVFormatContext *s)
 {
-    AVCodecParameters *par;
-
-    if (s->nb_streams != 1) {
-        av_log(s, AV_LOG_ERROR, "KVAG files have exactly one stream\n");
-        return AVERROR(EINVAL);
-    }
-
-    par = s->streams[0]->codecpar;
-
-    if (par->codec_id != AV_CODEC_ID_ADPCM_IMA_SSI) {
-        av_log(s, AV_LOG_ERROR, "%s codec not supported\n",
-               avcodec_get_name(par->codec_id));
-        return AVERROR(EINVAL);
-    }
+    AVCodecParameters *par = s->streams[0]->codecpar;
 
     if (par->ch_layout.nb_channels > 2) {
         av_log(s, AV_LOG_ERROR, "KVAG files only support up to 2 channels\n");
@@ -196,6 +186,9 @@ const FFOutputFormat ff_kvag_muxer = {
     .p.extensions   = "vag",
     .p.audio_codec  = AV_CODEC_ID_ADPCM_IMA_SSI,
     .p.video_codec  = AV_CODEC_ID_NONE,
+    .p.subtitle_codec = AV_CODEC_ID_NONE,
+    .flags_internal   = FF_OFMT_FLAG_MAX_ONE_OF_EACH |
+                        FF_OFMT_FLAG_ONLY_DEFAULT_CODECS,
     .init           = kvag_write_init,
     .write_header   = kvag_write_header,
     .write_packet   = ff_raw_write_packet,

@@ -23,8 +23,8 @@
 
 #include "libavutil/avassert.h"
 #include "libavutil/common.h"
+#include "libavutil/mem.h"
 #include "libavutil/pixdesc.h"
-#include "libavutil/internal.h"
 #include "libavutil/opt.h"
 
 #include "atsc_a53.h"
@@ -34,7 +34,6 @@
 #include "codec_internal.h"
 #include "h264.h"
 #include "h264_levels.h"
-#include "h264_sei.h"
 #include "h2645data.h"
 #include "vaapi_encode.h"
 #include "version.h"
@@ -759,7 +758,7 @@ static int vaapi_encode_h264_init_picture_params(AVCodecContext *avctx,
     vpic->frame_num = hpic->frame_num;
 
     vpic->pic_fields.bits.idr_pic_flag       = (pic->type == PICTURE_TYPE_IDR);
-    vpic->pic_fields.bits.reference_pic_flag = (pic->type != PICTURE_TYPE_B);
+    vpic->pic_fields.bits.reference_pic_flag = pic->is_reference;
 
     return 0;
 }

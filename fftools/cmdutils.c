@@ -33,17 +33,14 @@
 #include "compat/va_copy.h"
 #include "libavformat/avformat.h"
 #include "libswscale/swscale.h"
-#include "libswscale/version.h"
 #include "libswresample/swresample.h"
 #include "libavutil/avassert.h"
 #include "libavutil/avstring.h"
 #include "libavutil/bprint.h"
-#include "libavutil/channel_layout.h"
 #include "libavutil/display.h"
 #include "libavutil/getenv_utf8.h"
-#include "libavutil/mathematics.h"
-#include "libavutil/imgutils.h"
 #include "libavutil/libm.h"
+#include "libavutil/mem.h"
 #include "libavutil/parseutils.h"
 #include "libavutil/eval.h"
 #include "libavutil/dict.h"
@@ -314,7 +311,7 @@ static int write_option(void *optctx, const OptionDef *po, const char *opt,
 
         *(int *)dst = num;
     } else if (po->type == OPT_TYPE_INT64) {
-        ret = parse_number(opt, arg, OPT_TYPE_INT64, INT64_MIN, INT64_MAX, &num);
+        ret = parse_number(opt, arg, OPT_TYPE_INT64, INT64_MIN, (double)INT64_MAX, &num);
         if (ret < 0)
             goto finish;
 
@@ -528,7 +525,7 @@ static void check_options(const OptionDef *po)
 {
     while (po->name) {
         if (po->flags & OPT_PERFILE)
-            av_assert0(po->flags & (OPT_INPUT | OPT_OUTPUT));
+            av_assert0(po->flags & (OPT_INPUT | OPT_OUTPUT | OPT_DECODER));
 
         if (po->type == OPT_TYPE_FUNC)
             av_assert0(!(po->flags & (OPT_FLAG_OFFSET | OPT_FLAG_SPEC)));
@@ -581,7 +578,7 @@ static const AVOption *opt_find(void *obj, const char *name, const char *unit,
     return o;
 }
 
-#define FLAGS (o->type == AV_OPT_TYPE_FLAGS && (arg[0]=='-' || arg[0]=='+')) ? AV_DICT_APPEND : 0
+#define FLAGS ((o->type == AV_OPT_TYPE_FLAGS && (arg[0]=='-' || arg[0]=='+')) ? AV_DICT_APPEND : 0)
 int opt_default(void *optctx, const char *opt, const char *arg)
 {
     const AVOption *o;
@@ -793,7 +790,7 @@ int split_commandline(OptionParseContext *octx, int argc, char *argv[],
     while (optindex < argc) {
         const char *opt = argv[optindex++], *arg;
         const OptionDef *po;
-        int ret;
+        int ret, group_idx;
 
         av_log(NULL, AV_LOG_DEBUG, "Reading option '%s' ...", opt);
 
@@ -822,14 +819,15 @@ do {                                                                           \
 } while (0)
 
         /* named group separators, e.g. -i */
-        if ((ret = match_group_separator(groups, nb_groups, opt)) >= 0) {
+        group_idx = match_group_separator(groups, nb_groups, opt);
+        if (group_idx >= 0) {
             GET_ARG(arg);
-            ret = finish_group(octx, ret, arg);
+            ret = finish_group(octx, group_idx, arg);
             if (ret < 0)
                 return ret;
 
             av_log(NULL, AV_LOG_DEBUG, " matched as %s with argument '%s'.\n",
-                   groups[ret].name, arg);
+                   groups[group_idx].name, arg);
             continue;
         }
 
@@ -997,10 +995,6 @@ int filter_codec_opts(const AVDictionary *opts, enum AVCodecID codec_id,
     char          prefix = 0;
     const AVClass    *cc = avcodec_get_class();
 
-    if (!codec)
-        codec            = s->oformat ? avcodec_find_encoder(codec_id)
-                                      : avcodec_find_decoder(codec_id);
-
     switch (st->codecpar->codec_type) {
     case AVMEDIA_TYPE_VIDEO:
         prefix  = 'v';
@@ -1151,4 +1145,24 @@ char *file_read(const char *filename)
     if (ret < 0)
         return NULL;
     return str;
+}
+
+void remove_avoptions(AVDictionary **a, AVDictionary *b)
+{
+    const AVDictionaryEntry *t = NULL;
+
+    while ((t = av_dict_iterate(b, t))) {
+        av_dict_set(a, t->key, NULL, AV_DICT_MATCH_CASE);
+    }
+}
+
+int check_avoptions(AVDictionary *m)
+{
+    const AVDictionaryEntry *t = av_dict_iterate(m, NULL);
+    if (t) {
+        av_log(NULL, AV_LOG_FATAL, "Option %s not found.\n", t->key);
+        return AVERROR_OPTION_NOT_FOUND;
+    }
+
+    return 0;
 }

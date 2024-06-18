@@ -23,13 +23,12 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <inttypes.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include "libavutil/bswap.h"
+#include "libavutil/mem.h"
 #include "config.h"
-#include "rgb2rgb.h"
 #include "swscale.h"
 #include "swscale_internal.h"
 #include "libavutil/pixdesc.h"
@@ -831,7 +830,7 @@ av_cold int ff_yuv2rgb_c_init_tables(SwsContext *c, const int inv_table[4],
     cbu  = (cbu * contrast * saturation) >> 32;
     cgu  = (cgu * contrast * saturation) >> 32;
     cgv  = (cgv * contrast * saturation) >> 32;
-    oy  -= 256 * brightness;
+    oy  -= 256LL * brightness;
 
     c->uOffset = 0x0400040004000400LL;
     c->vOffset = 0x0400040004000400LL;

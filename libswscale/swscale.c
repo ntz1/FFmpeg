@@ -28,6 +28,7 @@
 #include "libavutil/cpu.h"
 #include "libavutil/emms.h"
 #include "libavutil/intreadwrite.h"
+#include "libavutil/mem.h"
 #include "libavutil/mem_internal.h"
 #include "libavutil/pixdesc.h"
 #include "config.h"
@@ -601,6 +602,8 @@ void ff_sws_init_scale(SwsContext *c)
     ff_sws_init_swscale_arm(c);
 #elif ARCH_LOONGARCH64
     ff_sws_init_swscale_loongarch(c);
+#elif ARCH_RISCV
+    ff_sws_init_swscale_riscv(c);
 #endif
 }
 

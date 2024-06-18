@@ -26,6 +26,7 @@
 #include "libavutil/attributes.h"
 #include "libavutil/channel_layout.h"
 #include "libavutil/internal.h"
+#include "libavutil/mem.h"
 #include "libavutil/opt.h"
 
 #include "audio.h"
@@ -162,8 +163,10 @@ static int filter_frame(AVFilterLink *outlink, AVFrame *buf)
 
     buf_out->data[0] = buf_out->extended_data[0] = buf_out->extended_data[s->map[i]];
     ret = av_channel_layout_from_mask(&buf_out->ch_layout, 1ULL << channel);
-    if (ret < 0)
+    if (ret < 0) {
+        av_frame_free(&buf_out);
         return ret;
+    }
 
     return ff_filter_frame(ctx->outputs[i], buf_out);
 }

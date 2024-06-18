@@ -23,6 +23,7 @@
 #include "libavutil/hdr_dynamic_metadata.h"
 #include "libavutil/film_grain_params.h"
 #include "libavutil/mastering_display_metadata.h"
+#include "libavutil/mem.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/opt.h"
 #include "avcodec.h"
@@ -34,10 +35,11 @@
 #include "decode.h"
 #include "hwaccel_internal.h"
 #include "internal.h"
+#include "itut35.h"
 #include "hwconfig.h"
 #include "profiles.h"
+#include "progressframe.h"
 #include "refstruct.h"
-#include "thread.h"
 
 /**< same with Div_Lut defined in spec 7.11.3.7 */
 static const uint16_t div_lut[AV1_DIV_LUT_NUM] = {
@@ -357,6 +359,30 @@ static void coded_lossless_param(AV1DecContext *s)
     }
 }
 
+static void order_hint_info(AV1DecContext *s)
+{
+    const AV1RawFrameHeader *header = s->raw_frame_header;
+    const AV1RawSequenceHeader *seq = s->raw_seq;
+    AV1Frame *frame = &s->cur_frame;
+
+    frame->order_hint = header->order_hint;
+
+    for (int i = 0; i < AV1_REFS_PER_FRAME; i++) {
+        int ref_name = i + AV1_REF_FRAME_LAST;
+        int ref_slot = header->ref_frame_idx[i];
+        int ref_order_hint = s->ref[ref_slot].order_hint;
+
+        frame->order_hints[ref_name] = ref_order_hint;
+        if (!seq->enable_order_hint) {
+            frame->ref_frame_sign_bias[ref_name] = 0;
+        } else {
+            frame->ref_frame_sign_bias[ref_name] =
+                get_relative_dist(seq, ref_order_hint,
+                                  frame->order_hint) > 0;
+        }
+    }
+}
+
 static void load_grain_params(AV1DecContext *s)
 {
     const AV1RawFrameHeader *header = s->raw_frame_header;
@@ -443,7 +469,7 @@ static int get_tiles_info(AVCodecContext *avctx, const AV1RawTileGroup *tile_gro
 static enum AVPixelFormat get_sw_pixel_format(void *logctx,
                                               const AV1RawSequenceHeader *seq)
 {
-    uint8_t bit_depth;
+    int bit_depth;
     enum AVPixelFormat pix_fmt = AV_PIX_FMT_NONE;
 
     if (seq->seq_profile == 2 && seq->color_config.high_bitdepth)
@@ -467,7 +493,7 @@ static enum AVPixelFormat get_sw_pixel_format(void *logctx,
             else if (bit_depth == 12)
                 pix_fmt = AV_PIX_FMT_YUV444P12;
             else
-                av_log(logctx, AV_LOG_WARNING, "Unknown AV1 pixel format.\n");
+                av_assert0(0);
         } else if (seq->color_config.subsampling_x == 1 &&
                    seq->color_config.subsampling_y == 0) {
             if (bit_depth == 8)
@@ -477,7 +503,7 @@ static enum AVPixelFormat get_sw_pixel_format(void *logctx,
             else if (bit_depth == 12)
                 pix_fmt = AV_PIX_FMT_YUV422P12;
             else
-                av_log(logctx, AV_LOG_WARNING, "Unknown AV1 pixel format.\n");
+                av_assert0(0);
         } else if (seq->color_config.subsampling_x == 1 &&
                    seq->color_config.subsampling_y == 1) {
             if (bit_depth == 8)
@@ -487,7 +513,7 @@ static enum AVPixelFormat get_sw_pixel_format(void *logctx,
             else if (bit_depth == 12)
                 pix_fmt = AV_PIX_FMT_YUV420P12;
             else
-                av_log(logctx, AV_LOG_WARNING, "Unknown AV1 pixel format.\n");
+                av_assert0(0);
         }
     } else {
         if (bit_depth == 8)
@@ -497,7 +523,7 @@ static enum AVPixelFormat get_sw_pixel_format(void *logctx,
         else if (bit_depth == 12)
             pix_fmt = AV_PIX_FMT_GRAY12;
         else
-            av_log(logctx, AV_LOG_WARNING, "Unknown AV1 pixel format.\n");
+            av_assert0(0);
     }
 
     return pix_fmt;
@@ -651,7 +677,7 @@ static int get_pixel_format(AVCodecContext *avctx)
 
 static void av1_frame_unref(AV1Frame *f)
 {
-    av_frame_unref(f->f);
+    ff_progress_frame_unref(&f->pf);
     ff_refstruct_unref(&f->hwaccel_picture_private);
     ff_refstruct_unref(&f->header_ref);
     f->raw_frame_header = NULL;
@@ -662,20 +688,15 @@ static void av1_frame_unref(AV1Frame *f)
     f->coded_lossless = 0;
 }
 
-static int av1_frame_ref(AVCodecContext *avctx, AV1Frame *dst, const AV1Frame *src)
+static void av1_frame_replace(AV1Frame *dst, const AV1Frame *src)
 {
-    int ret;
+    av_assert1(dst != src);
 
     ff_refstruct_replace(&dst->header_ref, src->header_ref);
 
     dst->raw_frame_header = src->raw_frame_header;
 
-    if (!src->f->buf[0])
-        return 0;
-
-    ret = av_frame_ref(dst->f, src->f);
-    if (ret < 0)
-        goto fail;
+    ff_progress_frame_replace(&dst->pf, &src->pf);
 
     ff_refstruct_replace(&dst->hwaccel_picture_private,
                           src->hwaccel_picture_private);
@@ -699,11 +720,13 @@ static int av1_frame_ref(AVCodecContext *avctx, AV1Frame *dst, const AV1Frame *s
            sizeof(dst->film_grain));
     dst->coded_lossless = src->coded_lossless;
 
-    return 0;
+    dst->order_hint = src->order_hint;
+    memcpy(dst->ref_frame_sign_bias, src->ref_frame_sign_bias,
+           sizeof(dst->ref_frame_sign_bias));
+    memcpy(dst->order_hints, src->order_hints,
+           sizeof(dst->order_hints));
 
-fail:
-    av1_frame_unref(dst);
-    return AVERROR(ENOMEM);
+    dst->force_integer_mv = src->force_integer_mv;
 }
 
 static av_cold int av1_decode_free(AVCodecContext *avctx)
@@ -711,16 +734,9 @@ static av_cold int av1_decode_free(AVCodecContext *avctx)
     AV1DecContext *s = avctx->priv_data;
     AV1RawMetadataITUTT35 itut_t35;
 
-    for (int i = 0; i < FF_ARRAY_ELEMS(s->ref); i++) {
-        if (s->ref[i].f) {
-            av1_frame_unref(&s->ref[i]);
-            av_frame_free(&s->ref[i].f);
-        }
-    }
-    if (s->cur_frame.f) {
-        av1_frame_unref(&s->cur_frame);
-        av_frame_free(&s->cur_frame.f);
-    }
+    for (int i = 0; i < FF_ARRAY_ELEMS(s->ref); i++)
+        av1_frame_unref(&s->ref[i]);
+    av1_frame_unref(&s->cur_frame);
     av_buffer_unref(&s->seq_data_ref);
     ff_refstruct_unref(&s->seq_ref);
     ff_refstruct_unref(&s->header_ref);
@@ -836,16 +852,6 @@ static av_cold int av1_decode_init(AVCodecContext *avctx)
     s->pkt = avctx->internal->in_pkt;
     s->pix_fmt = AV_PIX_FMT_NONE;
 
-    for (int i = 0; i < FF_ARRAY_ELEMS(s->ref); i++) {
-        s->ref[i].f = av_frame_alloc();
-        if (!s->ref[i].f)
-            return AVERROR(ENOMEM);
-    }
-
-    s->cur_frame.f = av_frame_alloc();
-    if (!s->cur_frame.f)
-        return AVERROR(ENOMEM);
-
     ret = ff_cbs_init(&s->cbc, AV_CODEC_ID_AV1, avctx);
     if (ret < 0)
         return ret;
@@ -886,10 +892,10 @@ static av_cold int av1_decode_init(AVCodecContext *avctx)
     }
 
     s->dovi.logctx = avctx;
-    s->dovi.dv_profile = 10; // default for AV1
+    s->dovi.cfg.dv_profile = 10; // default for AV1
     sd = ff_get_coded_side_data(avctx, AV_PKT_DATA_DOVI_CONF);
-    if (sd && sd->size > 0)
-        ff_dovi_update_cfg(&s->dovi, (AVDOVIDecoderConfigurationRecord *) sd->data);
+    if (sd && sd->size >= sizeof(s->dovi.cfg))
+        s->dovi.cfg = *(AVDOVIDecoderConfigurationRecord *) sd->data;
 
     return ret;
 }
@@ -907,7 +913,8 @@ static int av1_frame_alloc(AVCodecContext *avctx, AV1Frame *f)
         return ret;
     }
 
-    if ((ret = ff_thread_get_buffer(avctx, f->f, AV_GET_BUFFER_FLAG_REF)) < 0)
+    ret = ff_progress_frame_get_buffer(avctx, &f->pf, AV_GET_BUFFER_FLAG_REF);
+    if (ret < 0)
         goto fail;
 
     frame = f->f;
@@ -951,7 +958,7 @@ static int export_itut_t35(AVCodecContext *avctx, AVFrame *frame,
 
     provider_code = bytestream2_get_be16(&gb);
     switch (provider_code) {
-    case 0x31: { // atsc_provider_code
+    case ITU_T_T35_PROVIDER_CODE_ATSC: {
         uint32_t user_identifier = bytestream2_get_be32(&gb);
         switch (user_identifier) {
         case MKBETAG('G', 'A', '9', '4'): { // closed captions
@@ -975,12 +982,12 @@ static int export_itut_t35(AVCodecContext *avctx, AVFrame *frame,
         }
         break;
     }
-    case 0x3C: { // smpte_provider_code
+    case ITU_T_T35_PROVIDER_CODE_SMTPE: {
         AVDynamicHDRPlus *hdrplus;
         int provider_oriented_code = bytestream2_get_be16(&gb);
         int application_identifier = bytestream2_get_byte(&gb);
 
-        if (itut_t35->itu_t_t35_country_code != 0xB5 ||
+        if (itut_t35->itu_t_t35_country_code != ITU_T_T35_COUNTRY_CODE_US ||
             provider_oriented_code != 1 || application_identifier != 4)
             break;
 
@@ -994,12 +1001,14 @@ static int export_itut_t35(AVCodecContext *avctx, AVFrame *frame,
             return ret;
         break;
     }
-    case 0x3B: { // dolby_provider_code
+    case ITU_T_T35_PROVIDER_CODE_DOLBY: {
         int provider_oriented_code = bytestream2_get_be32(&gb);
-        if (itut_t35->itu_t_t35_country_code != 0xB5 || provider_oriented_code != 0x800)
+        if (itut_t35->itu_t_t35_country_code != ITU_T_T35_COUNTRY_CODE_US ||
+            provider_oriented_code != 0x800)
             break;
 
-        ret = ff_dovi_rpu_parse(&s->dovi, gb.buffer, gb.buffer_end - gb.buffer);
+        ret = ff_dovi_rpu_parse(&s->dovi, gb.buffer, gb.buffer_end - gb.buffer,
+                                avctx->err_recognition);
         if (ret < 0) {
             av_log(avctx, AV_LOG_WARNING, "Error parsing DOVI OBU.\n");
             break; // ignore
@@ -1072,9 +1081,11 @@ static int export_film_grain(AVCodecContext *avctx, AVFrame *frame)
 {
     AV1DecContext *s = avctx->priv_data;
     const AV1RawFilmGrainParams *film_grain = &s->cur_frame.film_grain;
+    const AVPixFmtDescriptor *pixdesc = av_pix_fmt_desc_get(frame->format);
     AVFilmGrainParams *fgp;
     AVFilmGrainAOMParams *aom;
 
+    av_assert0(pixdesc);
     if (!film_grain->apply_grain)
         return 0;
 
@@ -1084,6 +1095,14 @@ static int export_film_grain(AVCodecContext *avctx, AVFrame *frame)
 
     fgp->type = AV_FILM_GRAIN_PARAMS_AV1;
     fgp->seed = film_grain->grain_seed;
+    fgp->width = frame->width;
+    fgp->height = frame->height;
+    fgp->color_range = frame->color_range;
+    fgp->color_primaries = frame->color_primaries;
+    fgp->color_trc = frame->color_trc;
+    fgp->color_space = frame->colorspace;
+    fgp->subsampling_x = pixdesc->log2_chroma_w;
+    fgp->subsampling_y = pixdesc->log2_chroma_h;
 
     aom = &fgp->codec.aom;
     aom->chroma_scaling_from_luma = film_grain->chroma_scaling_from_luma;
@@ -1172,23 +1191,15 @@ FF_ENABLE_DEPRECATION_WARNINGS
     return 0;
 }
 
-static int update_reference_list(AVCodecContext *avctx)
+static void update_reference_list(AVCodecContext *avctx)
 {
     AV1DecContext *s = avctx->priv_data;
     const AV1RawFrameHeader *header = s->raw_frame_header;
-    int ret;
 
     for (int i = 0; i < AV1_NUM_REF_FRAMES; i++) {
-        if (header->refresh_frame_flags & (1 << i)) {
-            av1_frame_unref(&s->ref[i]);
-            if ((ret = av1_frame_ref(avctx, &s->ref[i], &s->cur_frame)) < 0) {
-                av_log(avctx, AV_LOG_ERROR,
-                       "Failed to update frame %d in reference list\n", i);
-                return ret;
-            }
-        }
+        if (header->refresh_frame_flags & (1 << i))
+            av1_frame_replace(&s->ref[i], &s->cur_frame);
     }
-    return 0;
 }
 
 static int get_current_frame(AVCodecContext *avctx)
@@ -1243,7 +1254,13 @@ static int get_current_frame(AVCodecContext *avctx)
     global_motion_params(s);
     skip_mode_params(s);
     coded_lossless_param(s);
+    order_hint_info(s);
     load_grain_params(s);
+
+    s->cur_frame.force_integer_mv =
+        s->raw_frame_header->force_integer_mv ||
+        s->raw_frame_header->frame_type == AV1_FRAME_KEY ||
+        s->raw_frame_header->frame_type == AV1_FRAME_INTRA_ONLY;
 
     return ret;
 }
@@ -1316,29 +1333,22 @@ static int av1_receive_frame_internal(AVCodecContext *avctx, AVFrame *frame)
                 s->raw_frame_header = &obu->obu.frame_header;
 
             if (s->raw_frame_header->show_existing_frame) {
-                av1_frame_unref(&s->cur_frame);
+                av1_frame_replace(&s->cur_frame,
+                                  &s->ref[s->raw_frame_header->frame_to_show_map_idx]);
 
-                ret = av1_frame_ref(avctx, &s->cur_frame,
-                                    &s->ref[s->raw_frame_header->frame_to_show_map_idx]);
-                if (ret < 0) {
-                    av_log(avctx, AV_LOG_ERROR, "Failed to get reference frame.\n");
-                    goto end;
-                }
+                update_reference_list(avctx);
 
-                ret = update_reference_list(avctx);
-                if (ret < 0) {
-                    av_log(avctx, AV_LOG_ERROR, "Failed to update reference list.\n");
-                    goto end;
-                }
-
-                if (s->cur_frame.f->buf[0]) {
+                if (s->cur_frame.f) {
                     ret = set_output_frame(avctx, frame);
-                    if (ret < 0)
+                    if (ret < 0) {
                         av_log(avctx, AV_LOG_ERROR, "Set output frame error.\n");
+                        goto end;
+                    }
                 }
 
                 s->raw_frame_header = NULL;
                 i++;
+                ret = 0;
 
                 goto end;
             }
@@ -1352,7 +1362,7 @@ static int av1_receive_frame_internal(AVCodecContext *avctx, AVFrame *frame)
             s->cur_frame.spatial_id  = header->spatial_id;
             s->cur_frame.temporal_id = header->temporal_id;
 
-            if (avctx->hwaccel && s->cur_frame.f->buf[0]) {
+            if (avctx->hwaccel && s->cur_frame.f) {
                 ret = FF_HW_CALL(avctx, start_frame, unit->data, unit->data_size);
                 if (ret < 0) {
                     av_log(avctx, AV_LOG_ERROR, "HW accel start frame fail.\n");
@@ -1378,7 +1388,7 @@ static int av1_receive_frame_internal(AVCodecContext *avctx, AVFrame *frame)
             if (ret < 0)
                 goto end;
 
-            if (avctx->hwaccel && s->cur_frame.f->buf[0]) {
+            if (avctx->hwaccel && s->cur_frame.f) {
                 ret = FF_HW_CALL(avctx, decode_slice, raw_tile_group->tile_data.data,
                                  raw_tile_group->tile_data.data_size);
                 if (ret < 0) {
@@ -1429,7 +1439,7 @@ static int av1_receive_frame_internal(AVCodecContext *avctx, AVFrame *frame)
 
         if (raw_tile_group && (s->tile_num == raw_tile_group->tg_end + 1)) {
             int show_frame = s->raw_frame_header->show_frame;
-            if (avctx->hwaccel && s->cur_frame.f->buf[0]) {
+            if (avctx->hwaccel && s->cur_frame.f) {
                 ret = FF_HW_SIMPLE_CALL(avctx, end_frame);
                 if (ret < 0) {
                     av_log(avctx, AV_LOG_ERROR, "HW accel end frame fail.\n");
@@ -1437,23 +1447,22 @@ static int av1_receive_frame_internal(AVCodecContext *avctx, AVFrame *frame)
                 }
             }
 
-            ret = update_reference_list(avctx);
-            if (ret < 0) {
-                av_log(avctx, AV_LOG_ERROR, "Failed to update reference list.\n");
-                goto end;
-            }
+            update_reference_list(avctx);
 
-            if (s->raw_frame_header->show_frame && s->cur_frame.f->buf[0]) {
-                ret = set_output_frame(avctx, frame);
-                if (ret < 0) {
-                    av_log(avctx, AV_LOG_ERROR, "Set output frame error\n");
-                    goto end;
-                }
-            }
-            raw_tile_group = NULL;
+            raw_tile_group      = NULL;
             s->raw_frame_header = NULL;
+
             if (show_frame) {
+                // cur_frame.f needn't exist due to skip_frame.
+                if (s->cur_frame.f) {
+                    ret = set_output_frame(avctx, frame);
+                    if (ret < 0) {
+                        av_log(avctx, AV_LOG_ERROR, "Set output frame error\n");
+                        goto end;
+                    }
+                }
                 i++;
+                ret = 0;
                 goto end;
             }
         }
@@ -1557,7 +1566,9 @@ const FFCodec ff_av1_decoder = {
     .close                 = av1_decode_free,
     FF_CODEC_RECEIVE_FRAME_CB(av1_receive_frame),
     .p.capabilities        = AV_CODEC_CAP_DR1,
-    .caps_internal         = FF_CODEC_CAP_INIT_CLEANUP | FF_CODEC_CAP_SKIP_FRAME_FILL_PARAM,
+    .caps_internal         = FF_CODEC_CAP_INIT_CLEANUP |
+                             FF_CODEC_CAP_SKIP_FRAME_FILL_PARAM |
+                             FF_CODEC_CAP_USES_PROGRESSFRAMES,
     .flush                 = av1_decode_flush,
     .p.profiles            = NULL_IF_CONFIG_SMALL(ff_av1_profiles),
     .p.priv_class          = &av1_class,
